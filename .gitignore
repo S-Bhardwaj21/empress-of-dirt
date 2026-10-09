@@ -32,3 +32,5 @@ tools/llama.cpp/*.exe
 orchestration/node_modules/
 orchestration/audit-report.json
 orchestration/dist/
+# Generated ElevenLabs audio
+orchestration/output/
