@@ -28,3 +28,7 @@ dist/
 build/
 tools/llama.cpp/*.dll
 tools/llama.cpp/*.exe
+# Node.js orchestration
+orchestration/node_modules/
+orchestration/audit-report.json
+orchestration/dist/
