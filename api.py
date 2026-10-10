@@ -22,7 +22,11 @@ app = FastAPI(title="Empress of Dirt API", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://empress-of-dirt-frontend.onrender.com",
+],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
