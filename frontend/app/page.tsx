@@ -14,7 +14,7 @@ instructions: string[];
 verification: string;
 safety_notes: string[];
 };
-const API = "http://127.0.0.1:8000";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 const AUDIO_SRC = "/audio/garden-quest-announcement.mp3";
 const leaves: Array<{ id: number; left: string; delay: number; duration: number }> = Array.from({ length: 16 }, (_, i) => ({
 id: i,
