@@ -37,7 +37,7 @@ class QuestEngine:
             return 1
         latest = recent[0]
         if latest.completed:
-            return min(5, latest.difficulty + 1)
+            return min(3, latest.difficulty + 1)
         return max(1, latest.difficulty - 1)
 
     def choose_target(self, items: list, recent_titles: list, fallback: str) -> str:
@@ -71,7 +71,7 @@ class QuestEngine:
             QuestType.RESCUE: "Look for signs that a plant may need an adult's care."
         }
         difficulty = self.choose_difficulty()
-        duration = min(30, max(10, 10 + difficulty * 4))
+        duration = min(30, max(20, 20 + difficulty * 2))
         return QuestPlan(
             quest_type=quest_type,
             target_area=target_area,

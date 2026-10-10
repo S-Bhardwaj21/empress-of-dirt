@@ -34,3 +34,7 @@ orchestration/audit-report.json
 orchestration/dist/
 # Generated ElevenLabs audio
 orchestration/output/
+api.py.before_scenario_quests.bak
+narration_headers.txt
+narration_test.mp3
+patch_narration.py

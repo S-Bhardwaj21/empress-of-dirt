@@ -1,14 +1,14 @@
-
+﻿
 import json
 import os
 import re
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Response, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
-from sensors.simulator.garden_state import get_simulated_garden
+from sensors.simulator.garden_state import get_simulated_garden, get_simulated_garden_scenario
 from memory.database.schema import initialize_database
 from memory.database.connection import get_connection
 from memory.repositories.sqlite_memory import SQLiteMemoryRepository
@@ -48,6 +48,8 @@ class CompletionRequest(BaseModel):
     difficulty: int
     completed: bool
 
+class NarrationRequest(BaseModel):
+    quest: dict
 class GardenProfileRequest(BaseModel):
     location: str = "home_garden"
     plants: list[str] = Field(min_length=1, max_length=50)
@@ -74,6 +76,27 @@ def get_garden_for_quests():
 def health():
     return {"status": "ok", "app": "Empress of Dirt"}
 
+@app.get("/api/sensors/simulated")
+def simulated_sensor_readings(scenario: str = "healthy_garden"):
+    allowed_scenarios = {"dry_soil", "healthy_garden", "hot_afternoon", "low_light"}
+    if scenario not in allowed_scenarios:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown scenario. Choose one of: {', '.join(sorted(allowed_scenarios))}"
+        )
+    garden = get_simulated_garden_scenario(scenario)
+    return {
+        "source": "simulator",
+        "is_simulated": True,
+        "scenario": scenario,
+        "location": garden.location,
+        "soil_moisture_percent": garden.soil_moisture,
+        "temperature_celsius": garden.temperature,
+        "humidity_percent": garden.humidity,
+        "weather": garden.weather,
+        "time_of_day": garden.time_of_day,
+        "plants": garden.plants
+    }
 @app.post("/api/garden/analyze")
 async def analyze_garden(photo: UploadFile = File(...)):
     allowed_types = {"image/jpeg", "image/png", "image/webp"}
@@ -90,7 +113,7 @@ async def analyze_garden(photo: UploadFile = File(...)):
             status_code=503,
             detail="Garden vision is not configured. Set the GEMMA_API_KEY environment variable."
         )
-    
+
     prompt = """
 You are a cautious plant-observation assistant for a child-friendly garden app.
 Analyze the uploaded garden photograph and identify plants using VISUAL BOTANICAL FEATURES ONLY.
@@ -200,9 +223,21 @@ def save_garden_profile(request: GardenProfileRequest):
     }
 
 @app.post("/api/quest")
-def generate_quest():
+def generate_quest(scenario: str = "healthy_garden"):
+    allowed_scenarios = {"dry_soil", "healthy_garden", "hot_afternoon", "low_light"}
+    if scenario not in allowed_scenarios:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown scenario. Choose one of: {', '.join(sorted(allowed_scenarios))}"
+        )
     memory = SQLiteMemoryRepository()
     garden = get_garden_for_quests()
+    simulated = get_simulated_garden_scenario(scenario)
+    garden.soil_moisture = simulated.soil_moisture
+    garden.temperature = simulated.temperature
+    garden.humidity = simulated.humidity
+    garden.weather = simulated.weather
+    garden.time_of_day = simulated.time_of_day
     engine = QuestEngine(memory)
     plan = engine.create_plan(garden)
     connection = get_connection()
@@ -212,6 +247,30 @@ def generate_quest():
     recent_titles = [row[0] for row in recent_rows]
     connection.close()
     quest = build_fallback_quest(plan, recent_titles)
+    if scenario == "dry_soil":
+        quest["story"] = "The garden detectives have a soil mystery to investigate. Use observations, not guesses, to learn about the ground."
+        quest["instructions"] = [
+            "With an adult's permission, observe the soil from a safe spot without digging.",
+            "Describe whether the visible soil looks dry, damp, or wet.",
+            "Ask an adult whether the garden needs care; do not water anything unless asked."
+        ]
+        quest["verification"] = "Share one soil observation and one question with an adult."
+    elif scenario == "hot_afternoon":
+        quest["story"] = "The afternoon is very hot, so today's garden mission is a short, shade-friendly observation adventure."
+        quest["instructions"] = [
+            "With an adult's permission, choose a comfortable shaded spot.",
+            "From the shade, observe a plant or the shapes of its leaves.",
+            "Finish promptly and go indoors if you feel too hot or uncomfortable."
+        ]
+        quest["verification"] = "Share one observation made from a comfortable shaded spot."
+    elif scenario == "low_light":
+        quest["story"] = "Garden detectives investigate how light and shade change the way a garden looks."
+        quest["instructions"] = [
+            "With an adult, observe the garden from a safe permitted spot.",
+            "Describe which visible area looks brighter and which looks more shaded.",
+            "Share one observation without moving plants or equipment."
+        ]
+        quest["verification"] = "Describe one visible difference in light or shade."
     is_valid, errors = validate_quest(quest, plan)
     if not is_valid:
         raise HTTPException(status_code=500, detail={"errors": errors})
@@ -227,8 +286,76 @@ def generate_quest():
         "target_area": plan.target_area,
         "target_plant": plan.target_plant,
         "reason": plan.reason,
-        "garden_source": "confirmed_profile" if get_saved_garden_profile() else "simulator"
+        "garden_source": "confirmed_profile" if get_saved_garden_profile() else "simulator",
+        "sensor_context": {
+            "source": "simulator",
+            "scenario": scenario,
+            "soil_moisture_percent": garden.soil_moisture,
+            "temperature_celsius": garden.temperature,
+            "humidity_percent": garden.humidity,
+            "weather": garden.weather,
+            "time_of_day": garden.time_of_day
+        }
     }
+
+
+@app.post("/api/quest/narrate")
+async def narrate_quest(request: NarrationRequest):
+    api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Quest narration is not configured.")
+
+    quest = request.quest
+    title = str(quest.get("title", "Your Garden Adventure"))[:200]
+    story = str(quest.get("story", ""))[:1500]
+    instructions = quest.get("instructions", [])
+    if not isinstance(instructions, list):
+        instructions = []
+    instructions = [str(item)[:400] for item in instructions[:8]]
+    narration = (
+        f"Hello, young explorer! Your new adventure is called: {title}. "
+        f"{story} Your mission: " + " ".join(instructions)
+    )[:4000]
+
+    import httpx
+    voice_id = "cgSgspJ2msm6clMCkdW9"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            result = await client.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                headers={
+                    "xi-api-key": api_key,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                },
+                json={
+                    "text": narration,
+                    "model_id": "eleven_multilingual_v2",
+                    "voice_settings": {
+                        "stability": 0.25,
+                        "similarity_boost": 0.75,
+                        "style": 0.8,
+                        "use_speaker_boost": True,
+                        "speed": 1.08,
+                    },
+                },
+            )
+        if result.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"ElevenLabs narration failed (HTTP {result.status_code}).",
+            )
+        return Response(
+            content=result.content,
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Narration timed out. Please try replaying.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=502, detail="Narration could not be generated.")
 
 @app.post("/api/quest/complete")
 def complete_quest(request: CompletionRequest):

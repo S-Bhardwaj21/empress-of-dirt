@@ -29,3 +29,43 @@ def get_simulated_garden() -> GardenState:
             "near_water_tap"
         ]
     )
+
+def get_simulated_garden_scenario(scenario: str) -> GardenState:
+    scenarios = {
+        "healthy_garden": {
+            "soil_moisture": 42,
+            "temperature": 26.0,
+            "humidity": 64,
+            "weather": "clear",
+            "time_of_day": "morning"
+        },
+        "dry_soil": {
+            "soil_moisture": 12,
+            "temperature": 30.0,
+            "humidity": 35,
+            "weather": "clear",
+            "time_of_day": "morning"
+        },
+        "hot_afternoon": {
+            "soil_moisture": 28,
+            "temperature": 39.0,
+            "humidity": 25,
+            "weather": "sunny",
+            "time_of_day": "afternoon"
+        },
+        "low_light": {
+            "soil_moisture": 42,
+            "temperature": 24.0,
+            "humidity": 60,
+            "weather": "cloudy",
+            "time_of_day": "evening"
+        }
+    }
+    if scenario not in scenarios:
+        raise ValueError(
+            f"Unknown scenario '{scenario}'. Choose one of: {', '.join(scenarios)}"
+        )
+    garden = get_simulated_garden()
+    for key, value in scenarios[scenario].items():
+        setattr(garden, key, value)
+    return garden
